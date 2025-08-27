@@ -19,7 +19,6 @@ rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr all_mappoints_pub;
 rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr tracked_keypoints_pub;
 rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr kf_markers_pub;
 image_transport::Publisher tracking_img_pub;
-// rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr tracking_img_pub;
 
 // =========================
 // Internals
@@ -117,81 +116,101 @@ void setup_services(const std::shared_ptr<rclcpp::Node>& node, const std::string
       node_name + "/save_map", &save_map_srv_cb);
   save_traj_service = g_node->create_service<orbslam3_ros::srv::SaveMap>(
       node_name + "/save_traj", &save_traj_srv_cb);
+  
+  RCLCPP_INFO(g_node->get_logger(), "Services setup complete");
 }
 
 void setup_publishers(const std::shared_ptr<rclcpp::Node>& node,
                       image_transport::ImageTransport& it,
                       const std::string& node_name)
 {
-  g_node = node;
-  if (!g_tf_broadcaster) {
-    g_tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(g_node);
-  }
-  auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort();
+    g_node = node;
+    if (!g_tf_broadcaster) {
+        g_tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(g_node);
+        RCLCPP_INFO(g_node->get_logger(), "TF broadcaster initialized");
+    }
+    
+    auto qos = rclcpp::QoS(rclcpp::KeepLast(10)).reliable();  // Changed to reliable and increased queue
 
-  pose_pub              = g_node->create_publisher<geometry_msgs::msg::PoseStamped>(node_name + "/camera_pose", qos);
-  tracked_mappoints_pub = g_node->create_publisher<sensor_msgs::msg::PointCloud2>(node_name + "/tracked_points", qos);
-  tracked_keypoints_pub = g_node->create_publisher<sensor_msgs::msg::PointCloud2>(node_name + "/tracked_key_points", qos);
-  all_mappoints_pub     = g_node->create_publisher<sensor_msgs::msg::PointCloud2>(node_name + "/all_points", qos);
-  kf_markers_pub        = g_node->create_publisher<visualization_msgs::msg::Marker>(node_name + "/kf_markers",
-                                                                                    rclcpp::QoS(10));
-  // tracking_img_pub      = it.advertise(node_name + "/tracking_image");
-  tracking_img_pub = it.advertise(node_name + "/tracking_image", 1);
+    // Create publishers with error checking
+    pose_pub = g_node->create_publisher<geometry_msgs::msg::PoseStamped>(node_name + "/camera_pose", qos);
+    if (!pose_pub) {
+        RCLCPP_ERROR(g_node->get_logger(), "Failed to create pose publisher");
+    } else {
+        RCLCPP_INFO(g_node->get_logger(), "Created pose publisher: %s", (node_name + "/camera_pose").c_str());
+    }
+    
+    tracked_mappoints_pub = g_node->create_publisher<sensor_msgs::msg::PointCloud2>(node_name + "/tracked_points", qos);
+    if (tracked_mappoints_pub) {
+        RCLCPP_INFO(g_node->get_logger(), "Created tracked points publisher");
+    }
+    
+    tracked_keypoints_pub = g_node->create_publisher<sensor_msgs::msg::PointCloud2>(node_name + "/tracked_key_points", qos);
+    if (tracked_keypoints_pub) {
+        RCLCPP_INFO(g_node->get_logger(), "Created tracked keypoints publisher");
+    }
+    
+    all_mappoints_pub = g_node->create_publisher<sensor_msgs::msg::PointCloud2>(node_name + "/all_points", qos);
+    if (all_mappoints_pub) {
+        RCLCPP_INFO(g_node->get_logger(), "Created all points publisher");
+    }
+    
+    kf_markers_pub = g_node->create_publisher<visualization_msgs::msg::Marker>(node_name + "/kf_markers", rclcpp::QoS(10));
+    if (kf_markers_pub) {
+        RCLCPP_INFO(g_node->get_logger(), "Created keyframe markers publisher");
+    }
+    
+    // Image transport publisher
+    tracking_img_pub = it.advertise(node_name + "/tracking_image", 1);
+    RCLCPP_INFO(g_node->get_logger(), "Created tracking image publisher");
 
-  if (sensor_type == ORB_SLAM3::System::IMU_MONOCULAR ||
-      sensor_type == ORB_SLAM3::System::IMU_STEREO    ||
-      sensor_type == ORB_SLAM3::System::IMU_RGBD)
-  {
-    odom_pub = g_node->create_publisher<nav_msgs::msg::Odometry>(node_name + "/body_odom", qos);
-  }
+    // IMU publishers (only if needed)
+    if (sensor_type == ORB_SLAM3::System::IMU_MONOCULAR ||
+        sensor_type == ORB_SLAM3::System::IMU_STEREO    ||
+        sensor_type == ORB_SLAM3::System::IMU_RGBD)
+    {
+        odom_pub = g_node->create_publisher<nav_msgs::msg::Odometry>(node_name + "/body_odom", qos);
+        if (odom_pub) {
+            RCLCPP_INFO(g_node->get_logger(), "Created odometry publisher");
+        }
+    }
+    
+    RCLCPP_INFO(g_node->get_logger(), "All publishers setup complete");
 }
-// void setup_publishers(const std::shared_ptr<rclcpp::Node>& node,
-//                       const std::string& node_name)
-// {
-//   g_node = node;
-//   if (!g_tf_broadcaster) {
-//     g_tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(g_node);
-//   }
-//   auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort();
-
-//   pose_pub              = g_node->create_publisher<geometry_msgs::msg::PoseStamped>(node_name + "/camera_pose", qos);
-//   tracked_mappoints_pub = g_node->create_publisher<sensor_msgs::msg::PointCloud2>(node_name + "/tracked_points", qos);
-//   tracked_keypoints_pub = g_node->create_publisher<sensor_msgs::msg::PointCloud2>(node_name + "/tracked_key_points", qos);
-//   all_mappoints_pub     = g_node->create_publisher<sensor_msgs::msg::PointCloud2>(node_name + "/all_points", qos);
-//   kf_markers_pub        = g_node->create_publisher<visualization_msgs::msg::Marker>(node_name + "/kf_markers", rclcpp::QoS(10));
-
-//   // ✅ plain image publisher instead of image_transport
-//   tracking_img_pub      = g_node->create_publisher<sensor_msgs::msg::Image>(node_name + "/tracking_image", qos);
-
-//   if (sensor_type == ORB_SLAM3::System::IMU_MONOCULAR ||
-//       sensor_type == ORB_SLAM3::System::IMU_STEREO    ||
-//       sensor_type == ORB_SLAM3::System::IMU_RGBD)
-//   {
-//     odom_pub = g_node->create_publisher<nav_msgs::msg::Odometry>(node_name + "/body_odom", qos);
-//   }
-// }
 
 // =========================
 // Publish helpers
 // =========================
 void publish_camera_pose(const Sophus::SE3f& Twc, const rclcpp::Time& stamp)
 {
-  if (!pose_pub) return;
-  geometry_msgs::msg::PoseStamped msg;
-  msg.header.frame_id = world_frame_id;
-  msg.header.stamp = stamp;
+    if (!pose_pub) {
+        RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 5000, "Pose publisher not initialized");
+        return;
+    }
+    
+    geometry_msgs::msg::PoseStamped msg;
+    msg.header.frame_id = world_frame_id;
+    msg.header.stamp = stamp;
 
-  const Eigen::Vector3f t = Twc.translation();
-  const Eigen::Quaternionf q = Twc.unit_quaternion();
-  msg.pose.position.x = t.x();
-  msg.pose.position.y = t.y();
-  msg.pose.position.z = t.z();
-  msg.pose.orientation.w = q.w();
-  msg.pose.orientation.x = q.x();
-  msg.pose.orientation.y = q.y();
-  msg.pose.orientation.z = q.z();
+    const Eigen::Vector3f t = Twc.translation();
+    const Eigen::Quaternionf q = Twc.unit_quaternion();
+    
+    msg.pose.position.x = static_cast<double>(t.x());
+    msg.pose.position.y = static_cast<double>(t.y());
+    msg.pose.position.z = static_cast<double>(t.z());
+    msg.pose.orientation.w = static_cast<double>(q.w());
+    msg.pose.orientation.x = static_cast<double>(q.x());
+    msg.pose.orientation.y = static_cast<double>(q.y());
+    msg.pose.orientation.z = static_cast<double>(q.z());
 
-  pose_pub->publish(msg);
+    pose_pub->publish(msg);
+    
+    // Debug output (throttled)
+    static int pose_count = 0;
+    if (++pose_count % 60 == 0) {
+        RCLCPP_INFO(g_node->get_logger(), "Published pose %d: [%.3f, %.3f, %.3f]", 
+                   pose_count, t.x(), t.y(), t.z());
+    }
 }
 
 void publish_tf_transform(const Sophus::SE3f& T,
@@ -199,161 +218,204 @@ void publish_tf_transform(const Sophus::SE3f& T,
                           const std::string& child,
                           const rclcpp::Time& stamp)
 {
-  if (!g_tf_broadcaster) return;
-  g_tf_broadcaster->sendTransform(SE3f_to_TransformStamped(T, parent, child, stamp));
+    if (!g_tf_broadcaster) {
+        RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 5000, "TF broadcaster not initialized");
+        return;
+    }
+    
+    if (has_nan(T)) {
+        RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 2000, "Transform has NaN values, skipping");
+        return;
+    }
+    
+    auto transform = SE3f_to_TransformStamped(T, parent, child, stamp);
+    g_tf_broadcaster->sendTransform(transform);
+    
+    // Debug output (throttled)
+    static int tf_count = 0;
+    if (++tf_count % 60 == 0) {
+        RCLCPP_INFO(g_node->get_logger(), "Published TF %d: %s -> %s", tf_count, parent.c_str(), child.c_str());
+    }
 }
 
 void publish_tracking_img(const cv::Mat& image, const rclcpp::Time& stamp)
 {
-  if (!tracking_img_pub) return;
-  std_msgs::msg::Header header;
-  header.stamp = stamp;
-  header.frame_id = world_frame_id;
-  auto msg = cv_bridge::CvImage(header, "bgr8", image).toImageMsg();
-  tracking_img_pub.publish(msg);
+    if (!tracking_img_pub) {
+        RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 5000, "Tracking image publisher not initialized");
+        return;
+    }
+    
+    if (image.empty()) {
+        RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 2000, "Empty tracking image received");
+        return;
+    }
+    
+    try {
+        std_msgs::msg::Header header;
+        header.stamp = stamp;
+        header.frame_id = cam_frame_id; // Use camera frame for image
+        auto msg = cv_bridge::CvImage(header, "bgr8", image).toImageMsg();
+        tracking_img_pub.publish(msg);
+        
+        // Debug output (throttled)
+        static int img_count = 0;
+        if (++img_count % 60 == 0) {
+            RCLCPP_INFO(g_node->get_logger(), "Published tracking image %d", img_count);
+        }
+    } catch (const std::exception& e) {
+        RCLCPP_ERROR_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 5000, 
+                              "Exception in publish_tracking_img: %s", e.what());
+    }
 }
-// void publish_tracking_img(const cv::Mat& image, const rclcpp::Time& stamp)
-// {
-//   if (!tracking_img_pub) return;
-//   std_msgs::msg::Header header;
-//   header.stamp = stamp;
-//   header.frame_id = world_frame_id;
-//   auto msg = cv_bridge::CvImage(header, "bgr8", image).toImageMsg();
-//   tracking_img_pub->publish(*msg);
-// }
 
 sensor_msgs::msg::PointCloud2 keypoints_to_pointcloud(const std::vector<cv::KeyPoint>& keypoints,
                                                       const rclcpp::Time& stamp)
 {
-  const int num_channels = 3; // x y z
-  sensor_msgs::msg::PointCloud2 cloud;
-  cloud.header.stamp = stamp;
-  cloud.header.frame_id = world_frame_id;
-  cloud.height = 1;
-  cloud.width  = static_cast<uint32_t>(keypoints.size());
-  cloud.is_bigendian = false;
-  cloud.is_dense = true;
-  cloud.point_step = num_channels * sizeof(float);
-  cloud.row_step   = cloud.point_step * cloud.width;
-  cloud.fields.resize(num_channels);
+    const int num_channels = 3; // x y z
+    sensor_msgs::msg::PointCloud2 cloud;
+    cloud.header.stamp = stamp;
+    cloud.header.frame_id = world_frame_id;
+    cloud.height = 1;
+    cloud.width  = static_cast<uint32_t>(keypoints.size());
+    cloud.is_bigendian = false;
+    cloud.is_dense = true;
+    cloud.point_step = num_channels * sizeof(float);
+    cloud.row_step   = cloud.point_step * cloud.width;
+    cloud.fields.resize(num_channels);
 
-  const char* channel_id[] = {"x","y","z"};
-  for (int i = 0; i < num_channels; ++i) {
-    cloud.fields[i].name    = channel_id[i];
-    cloud.fields[i].offset  = i * sizeof(float);
-    cloud.fields[i].count   = 1;
-    cloud.fields[i].datatype= sensor_msgs::msg::PointField::FLOAT32;
-  }
+    const char* channel_id[] = {"x","y","z"};
+    for (int i = 0; i < num_channels; ++i) {
+        cloud.fields[i].name    = channel_id[i];
+        cloud.fields[i].offset  = i * sizeof(float);
+        cloud.fields[i].count   = 1;
+        cloud.fields[i].datatype= sensor_msgs::msg::PointField::FLOAT32;
+    }
 
-  cloud.data.resize(cloud.row_step * cloud.height);
-  auto* ptr = cloud.data.data();
-  for (uint32_t i = 0; i < cloud.width; ++i) {
-    const float data[3] = { keypoints[i].pt.x, keypoints[i].pt.y, 0.0f };
-    std::memcpy(ptr + (i * cloud.point_step), data, sizeof(data));
-  }
-  return cloud;
+    cloud.data.resize(cloud.row_step * cloud.height);
+    auto* ptr = cloud.data.data();
+    for (uint32_t i = 0; i < cloud.width; ++i) {
+        const float data[3] = { keypoints[i].pt.x, keypoints[i].pt.y, 0.0f };
+        std::memcpy(ptr + (i * cloud.point_step), data, sizeof(data));
+    }
+    return cloud;
 }
 
 sensor_msgs::msg::PointCloud2 mappoint_to_pointcloud(const std::vector<ORB_SLAM3::MapPoint*>& map_points,
                                                      const rclcpp::Time& stamp)
 {
-  const int num_channels = 3;
-  sensor_msgs::msg::PointCloud2 cloud;
-  cloud.header.stamp = stamp;
-  cloud.header.frame_id = world_frame_id;
-  cloud.height = 1;
-  cloud.width  = static_cast<uint32_t>(map_points.size());
-  cloud.is_bigendian = false;
-  cloud.is_dense = true;
-  cloud.point_step = num_channels * sizeof(float);
-  cloud.row_step   = cloud.point_step * cloud.width;
-  cloud.fields.resize(num_channels);
+    // Filter out null pointers first
+    std::vector<ORB_SLAM3::MapPoint*> valid_points;
+    for (auto* mp : map_points) {
+        if (mp && !mp->isBad()) {  // Check if point exists and is not bad
+            valid_points.push_back(mp);
+        }
+    }
+    
+    const int num_channels = 3;
+    sensor_msgs::msg::PointCloud2 cloud;
+    cloud.header.stamp = stamp;
+    cloud.header.frame_id = world_frame_id;
+    cloud.height = 1;
+    cloud.width  = static_cast<uint32_t>(valid_points.size());
+    cloud.is_bigendian = false;
+    cloud.is_dense = true;
+    cloud.point_step = num_channels * sizeof(float);
+    cloud.row_step   = cloud.point_step * cloud.width;
+    cloud.fields.resize(num_channels);
 
-  const char* channel_id[] = {"x","y","z"};
-  for (int i = 0; i < num_channels; ++i) {
-    cloud.fields[i].name    = channel_id[i];
-    cloud.fields[i].offset  = i * sizeof(float);
-    cloud.fields[i].count   = 1;
-    cloud.fields[i].datatype= sensor_msgs::msg::PointField::FLOAT32;
-  }
+    const char* channel_id[] = {"x","y","z"};
+    for (int i = 0; i < num_channels; ++i) {
+        cloud.fields[i].name    = channel_id[i];
+        cloud.fields[i].offset  = i * sizeof(float);
+        cloud.fields[i].count   = 1;
+        cloud.fields[i].datatype= sensor_msgs::msg::PointField::FLOAT32;
+    }
 
-  cloud.data.resize(cloud.row_step * cloud.height);
-  auto* ptr = cloud.data.data();
+    cloud.data.resize(cloud.row_step * cloud.height);
+    auto* ptr = cloud.data.data();
 
-  for (uint32_t i = 0; i < cloud.width; ++i) {
-    const auto* mp = map_points[i];
-    if (!mp) continue;
-    // const Eigen::Vector3f P = mp->GetWorldPos(); // float
-    // Eigen::Vector3f P = mp->GetWorldPos(); // float
-    const Eigen::Vector3f P = const_cast<ORB_SLAM3::MapPoint*>(mp)->GetWorldPos();
-    const float data[3] = { P.x(), P.y(), P.z() };
-    std::memcpy(ptr + (i * cloud.point_step), data, sizeof(data));
-  }
-  return cloud;
+    for (uint32_t i = 0; i < cloud.width; ++i) {
+        try {
+            const Eigen::Vector3f P = valid_points[i]->GetWorldPos();
+            const float data[3] = { P.x(), P.y(), P.z() };
+            std::memcpy(ptr + (i * cloud.point_step), data, sizeof(data));
+        } catch (const std::exception& e) {
+            // If we can't get position, use zero
+            const float data[3] = { 0.0f, 0.0f, 0.0f };
+            std::memcpy(ptr + (i * cloud.point_step), data, sizeof(data));
+        }
+    }
+    return cloud;
 }
 
 void publish_keypoints(const std::vector<ORB_SLAM3::MapPoint*>& tracked_map_points,
                        const std::vector<cv::KeyPoint>& tracked_keypoints,
                        const rclcpp::Time& stamp)
 {
-  if (!tracked_keypoints_pub || tracked_keypoints.empty()) return;
+    if (!tracked_keypoints_pub || tracked_keypoints.empty()) return;
 
-  std::vector<cv::KeyPoint> filtered;
-  filtered.reserve(tracked_keypoints.size());
+    std::vector<cv::KeyPoint> filtered;
+    filtered.reserve(tracked_keypoints.size());
 
-  const size_t N = std::min(tracked_map_points.size(), tracked_keypoints.size());
-  for (size_t i = 0; i < N; ++i) {
-    if (tracked_map_points[i]) filtered.push_back(tracked_keypoints[i]);
-  }
-  auto cloud = keypoints_to_pointcloud(filtered, stamp);
-  tracked_keypoints_pub->publish(cloud);
+    const size_t N = std::min(tracked_map_points.size(), tracked_keypoints.size());
+    for (size_t i = 0; i < N; ++i) {
+        if (tracked_map_points[i] && !tracked_map_points[i]->isBad()) {
+            filtered.push_back(tracked_keypoints[i]);
+        }
+    }
+    
+    if (!filtered.empty()) {
+        auto cloud = keypoints_to_pointcloud(filtered, stamp);
+        tracked_keypoints_pub->publish(cloud);
+    }
 }
 
 void publish_tracked_points(const std::vector<ORB_SLAM3::MapPoint*>& tracked_points,
                             const rclcpp::Time& stamp)
 {
-  if (!tracked_mappoints_pub) return;
-  tracked_mappoints_pub->publish(mappoint_to_pointcloud(tracked_points, stamp));
+    if (!tracked_mappoints_pub || tracked_points.empty()) return;
+    auto cloud = mappoint_to_pointcloud(tracked_points, stamp);
+    tracked_mappoints_pub->publish(cloud);
 }
 
 void publish_all_points(const std::vector<ORB_SLAM3::MapPoint*>& map_points,
                         const rclcpp::Time& stamp)
 {
-  if (!all_mappoints_pub) return;
-  all_mappoints_pub->publish(mappoint_to_pointcloud(map_points, stamp));
+    if (!all_mappoints_pub || map_points.empty()) return;
+    auto cloud = mappoint_to_pointcloud(map_points, stamp);
+    all_mappoints_pub->publish(cloud);
 }
 
 void publish_kf_markers(const std::vector<Sophus::SE3f>& vKFposes,
                         const rclcpp::Time& stamp)
 {
-  if (!kf_markers_pub) return;
-  if (vKFposes.empty()) return;
+    if (!kf_markers_pub || vKFposes.empty()) return;
 
-  visualization_msgs::msg::Marker marker;
-  marker.header.frame_id = world_frame_id;
-  marker.header.stamp = stamp;
-  marker.ns = "kf_markers";
-  marker.type = visualization_msgs::msg::Marker::SPHERE_LIST;
-  marker.action = visualization_msgs::msg::Marker::ADD;
-  marker.pose.orientation.w = 1.0;
-  marker.lifetime = rclcpp::Duration(0, 0);
-  marker.id = 0;
+    visualization_msgs::msg::Marker marker;
+    marker.header.frame_id = world_frame_id;
+    marker.header.stamp = stamp;
+    marker.ns = "kf_markers";
+    marker.type = visualization_msgs::msg::Marker::SPHERE_LIST;
+    marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.pose.orientation.w = 1.0;
+    marker.lifetime = rclcpp::Duration(0, 0);
+    marker.id = 0;
 
-  marker.scale.x = 0.05;
-  marker.scale.y = 0.05;
-  marker.scale.z = 0.05;
-  marker.color.g = 1.0;
-  marker.color.a = 1.0;
+    marker.scale.x = 0.05;
+    marker.scale.y = 0.05;
+    marker.scale.z = 0.05;
+    marker.color.g = 1.0;
+    marker.color.a = 1.0;
 
-  marker.points.reserve(vKFposes.size());
-  for (size_t i = 0; i < vKFposes.size(); ++i) {
-    geometry_msgs::msg::Point p;
-    p.x = vKFposes[i].translation().x();
-    p.y = vKFposes[i].translation().y();
-    p.z = vKFposes[i].translation().z();
-    marker.points.push_back(p);
-  }
-  kf_markers_pub->publish(marker);
+    marker.points.reserve(vKFposes.size());
+    for (size_t i = 0; i < vKFposes.size(); ++i) {
+        geometry_msgs::msg::Point p;
+        p.x = static_cast<double>(vKFposes[i].translation().x());
+        p.y = static_cast<double>(vKFposes[i].translation().y());
+        p.z = static_cast<double>(vKFposes[i].translation().z());
+        marker.points.push_back(p);
+    }
+    kf_markers_pub->publish(marker);
 }
 
 void publish_body_odom(const Sophus::SE3f& Twb,
@@ -361,32 +423,33 @@ void publish_body_odom(const Sophus::SE3f& Twb,
                        const Eigen::Vector3f& Wbb,
                        const rclcpp::Time& stamp)
 {
-  if (!odom_pub) return;
-  nav_msgs::msg::Odometry odom;
-  odom.header.frame_id = world_frame_id;
-  odom.child_frame_id  = imu_frame_id;
-  odom.header.stamp    = stamp;
+    if (!odom_pub) return;
+    
+    nav_msgs::msg::Odometry odom;
+    odom.header.frame_id = world_frame_id;
+    odom.child_frame_id  = imu_frame_id;
+    odom.header.stamp    = stamp;
 
-  const Eigen::Vector3f t = Twb.translation();
-  const Eigen::Quaternionf q = Twb.unit_quaternion();
+    const Eigen::Vector3f t = Twb.translation();
+    const Eigen::Quaternionf q = Twb.unit_quaternion();
 
-  odom.pose.pose.position.x = t.x();
-  odom.pose.pose.position.y = t.y();
-  odom.pose.pose.position.z = t.z();
-  odom.pose.pose.orientation.w = q.w();
-  odom.pose.pose.orientation.x = q.x();
-  odom.pose.pose.orientation.y = q.y();
-  odom.pose.pose.orientation.z = q.z();
+    odom.pose.pose.position.x = static_cast<double>(t.x());
+    odom.pose.pose.position.y = static_cast<double>(t.y());
+    odom.pose.pose.position.z = static_cast<double>(t.z());
+    odom.pose.pose.orientation.w = static_cast<double>(q.w());
+    odom.pose.pose.orientation.x = static_cast<double>(q.x());
+    odom.pose.pose.orientation.y = static_cast<double>(q.y());
+    odom.pose.pose.orientation.z = static_cast<double>(q.z());
 
-  odom.twist.twist.linear.x  = Vwb.x();
-  odom.twist.twist.linear.y  = Vwb.y();
-  odom.twist.twist.linear.z  = Vwb.z();
+    odom.twist.twist.linear.x  = static_cast<double>(Vwb.x());
+    odom.twist.twist.linear.y  = static_cast<double>(Vwb.y());
+    odom.twist.twist.linear.z  = static_cast<double>(Vwb.z());
 
-  odom.twist.twist.angular.x = Wbb.x();
-  odom.twist.twist.angular.y = Wbb.y();
-  odom.twist.twist.angular.z = Wbb.z();
+    odom.twist.twist.angular.x = static_cast<double>(Wbb.x());
+    odom.twist.twist.angular.y = static_cast<double>(Wbb.y());
+    odom.twist.twist.angular.z = static_cast<double>(Wbb.z());
 
-  odom_pub->publish(odom);
+    odom_pub->publish(odom);
 }
 
 // =========================
@@ -394,34 +457,95 @@ void publish_body_odom(const Sophus::SE3f& Twb,
 // =========================
 void publish_topics(const rclcpp::Time& msg_time, const Eigen::Vector3f& Wbb_body)
 {
-  if (!pSLAM) return;
+    if (!pSLAM) {
+        RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 5000, "pSLAM is null in publish_topics");
+        return;
+    }
 
-  const Sophus::SE3f Twc = pSLAM->GetCamTwc();
-  if (has_nan(Twc)) return;
+    static int publish_count = 0;
+    publish_count++;
 
-  // Common topics
-  publish_camera_pose(Twc, msg_time);
-  publish_tf_transform(Twc, world_frame_id, cam_frame_id, msg_time);
+    try {
+        // Get current camera pose
+        const Sophus::SE3f Twc = pSLAM->GetCamTwc();
+        if (has_nan(Twc)) {
+            RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 2000, "Camera pose has NaN values");
+            return;
+        }
 
-  publish_tracking_img(pSLAM->GetCurrentFrame(), msg_time);
+        // Always publish camera pose and TF
+        publish_camera_pose(Twc, msg_time);
+        publish_tf_transform(Twc, world_frame_id, cam_frame_id, msg_time);
 
-  publish_keypoints(pSLAM->GetTrackedMapPoints(),
-                    pSLAM->GetTrackedKeyPoints(),
-                    msg_time);
+        // Try to publish tracking image
+        try {
+            cv::Mat tracking_img = pSLAM->GetCurrentFrame();
+            if (!tracking_img.empty()) {
+                publish_tracking_img(tracking_img, msg_time);
+            } else {
+                RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 5000, "Empty tracking image from SLAM");
+            }
+        } catch (const std::exception& e) {
+            RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 5000, "Exception getting tracking image: %s", e.what());
+        }
 
-  publish_tracked_points(pSLAM->GetTrackedMapPoints(), msg_time);
-  publish_all_points(pSLAM->GetAllMapPoints(), msg_time);
-  publish_kf_markers(pSLAM->GetAllKeyframePoses(), msg_time);
+        // Get tracked map points and keypoints
+        try {
+            std::vector<ORB_SLAM3::MapPoint*> tracked_map_points = pSLAM->GetTrackedMapPoints();
+            std::vector<cv::KeyPoint> tracked_keypoints = pSLAM->GetTrackedKeyPoints();
+            
+            if (!tracked_map_points.empty() && !tracked_keypoints.empty()) {
+                publish_keypoints(tracked_map_points, tracked_keypoints, msg_time);
+                publish_tracked_points(tracked_map_points, msg_time);
+            }
+        } catch (const std::exception& e) {
+            RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 5000, "Exception getting tracked points: %s", e.what());
+        }
 
-  // IMU-specific
-  if (sensor_type == ORB_SLAM3::System::IMU_MONOCULAR ||
-      sensor_type == ORB_SLAM3::System::IMU_STEREO    ||
-      sensor_type == ORB_SLAM3::System::IMU_RGBD)
-  {
-    const Sophus::SE3f Twb = pSLAM->GetImuTwb();
-    const Eigen::Vector3f Vwb = pSLAM->GetImuVwb();
+        // Get all map points
+        try {
+            std::vector<ORB_SLAM3::MapPoint*> all_map_points = pSLAM->GetAllMapPoints();
+            if (!all_map_points.empty()) {
+                publish_all_points(all_map_points, msg_time);
+            }
+        } catch (const std::exception& e) {
+            RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 5000, "Exception getting all points: %s", e.what());
+        }
 
-    publish_tf_transform(Twb, world_frame_id, imu_frame_id, msg_time);
-    publish_body_odom(Twb, Vwb, Wbb_body, msg_time);
-  }
+        // Get keyframe poses
+        try {
+            std::vector<Sophus::SE3f> kf_poses = pSLAM->GetAllKeyframePoses();
+            if (!kf_poses.empty()) {
+                publish_kf_markers(kf_poses, msg_time);
+            }
+        } catch (const std::exception& e) {
+            RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 5000, "Exception getting keyframes: %s", e.what());
+        }
+
+        // IMU-specific publishing
+        if (sensor_type == ORB_SLAM3::System::IMU_MONOCULAR ||
+            sensor_type == ORB_SLAM3::System::IMU_STEREO    ||
+            sensor_type == ORB_SLAM3::System::IMU_RGBD)
+        {
+            try {
+                const Sophus::SE3f Twb = pSLAM->GetImuTwb();
+                const Eigen::Vector3f Vwb = pSLAM->GetImuVwb();
+
+                if (!has_nan(Twb)) {
+                    publish_tf_transform(Twb, world_frame_id, imu_frame_id, msg_time);
+                    publish_body_odom(Twb, Vwb, Wbb_body, msg_time);
+                }
+            } catch (const std::exception& e) {
+                RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 5000, "Exception in IMU publishing: %s", e.what());
+            }
+        }
+
+        // Debug output (every 60 publishes)
+        if (publish_count % 60 == 0) {
+            RCLCPP_INFO(g_node->get_logger(), "Published topics %d times", publish_count);
+        }
+
+    } catch (const std::exception& e) {
+        RCLCPP_ERROR_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 5000, "Exception in publish_topics: %s", e.what());
+    }
 }

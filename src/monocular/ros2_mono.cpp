@@ -1,5 +1,5 @@
 /**
- * ROS 2 Jazzy monocular bridge (debug version)
+ * ROS 2 Jazzy monocular bridge (debug version) - FIXED
  */
 #include "/home/lukchin/skuba_ws/src/orbslam3_ros2/include/common.h"
 #include <rclcpp/rclcpp.hpp>
@@ -16,7 +16,7 @@ public:
         this->declare_parameter<std::string>("voc_file", "file_not_set");
         this->declare_parameter<std::string>("settings_file", "file_not_set");
         this->declare_parameter<std::string>("world_frame_id", "map");
-        this->declare_parameter<std::string>("cam_frame_id", "camera");
+        this->declare_parameter<std::string>("cam_frame_id", "camera_link");
         this->declare_parameter<bool>("enable_pangolin", true);
         this->declare_parameter<std::string>("image_topic", "/camera/camera/color/image_raw");
         
@@ -25,18 +25,27 @@ public:
         world_frame_id = this->get_parameter("world_frame_id").as_string();
         cam_frame_id = this->get_parameter("cam_frame_id").as_string();
         const bool enable_pangolin = this->get_parameter("enable_pangolin").as_bool();
-        const std::string image_topic = this->get_parameter("image_topic").as_string();
+        image_topic_ = this->get_parameter("image_topic").as_string();
         
-        std::cout << "This is image topic: " << image_topic << std::endl;
+        std::cout << "This is image topic: " << image_topic_ << std::endl;
+        std::cout << "World frame: " << world_frame_id << ", Camera frame: " << cam_frame_id << std::endl;
         
         if (voc_file == "file_not_set" || settings_file == "file_not_set") {
             RCLCPP_ERROR(this->get_logger(), "Please provide voc_file and settings_file in the launch file");
             throw std::runtime_error("Missing voc/settings file parameters");
         }
         
+        // SET GLOBAL VARIABLES BEFORE INITIALIZING SLAM
+        ::world_frame_id = world_frame_id;
+        ::cam_frame_id = cam_frame_id;
+        ::sensor_type = ORB_SLAM3::System::MONOCULAR;
+        
         // Initialize ORB-SLAM3 (Monocular)
         sensor_type = ORB_SLAM3::System::MONOCULAR;
         pSLAM = new ORB_SLAM3::System(voc_file, settings_file, sensor_type, enable_pangolin);
+        
+        // SET GLOBAL pSLAM POINTER
+        ::pSLAM = pSLAM;
         
         std::cout << "ORB-SLAM3 initialized successfully" << std::endl;
     }
@@ -45,23 +54,25 @@ public:
     {
         std::cout << "Starting node setup..." << std::endl;
         
-        // Create image transport using regular subscription instead
+        // SETUP PUBLISHERS FIRST, BEFORE SUBSCRIBER
+        try {
+            auto it = std::make_shared<image_transport::ImageTransport>(shared_from_this());
+            setup_publishers(shared_from_this(), *it, this->get_name());
+            setup_services(shared_from_this(), this->get_name());
+            std::cout << "Publishers and services setup complete" << std::endl;
+        } catch (const std::exception& e) {
+            RCLCPP_ERROR(this->get_logger(), "Failed to setup publishers: %s", e.what());
+            throw;
+        }
+        
+        // Image subscriber - use the parameter topic
         sub_ = this->create_subscription<sensor_msgs::msg::Image>(
-            "/camera/image_raw",
+            image_topic_,
             rclcpp::QoS(rclcpp::KeepLast(10)).reliable(),
             std::bind(&MonoNode::grabImage, this, std::placeholders::_1)
         );
         
-        // TEMPORARILY COMMENT OUT THESE CALLS TO ISOLATE THE ISSUE
-        // TODO: Uncomment these once the basic setup works
-        /*
-        it_ = std::make_shared<image_transport::ImageTransport>(
-            std::static_pointer_cast<rclcpp::Node>(shared_from_this())
-        );
-        setup_publishers(this, *it_, this->get_name());
-        setup_services(this, this->get_name());
-        */
-        
+        RCLCPP_INFO(this->get_logger(), "Subscribed to image topic: %s", image_topic_.c_str());
         std::cout << "Node setup complete" << std::endl;
     }
     
@@ -71,15 +82,24 @@ public:
             pSLAM->Shutdown();
             delete pSLAM;
             pSLAM = nullptr;
+            ::pSLAM = nullptr; // Clear global pointer
         }
     }
 
 private:
     void grabImage(const sensor_msgs::msg::Image::ConstSharedPtr msg)
     {
+        static int frame_count = 0;
+        frame_count++;
+        
         if (!pSLAM) {
             RCLCPP_WARN(this->get_logger(), "SLAM system not initialized");
             return;
+        }
+        
+        // Debug: Log every 30 frames
+        if (frame_count % 30 == 0) {
+            RCLCPP_INFO(this->get_logger(), "Processing frame %d", frame_count);
         }
         
         // Convert to cv::Mat
@@ -91,22 +111,43 @@ private:
             return;
         }
         
-        // TrackMonocular expects seconds (double)
+        // Check image validity
+        if (cv_ptr->image.empty()) {
+            RCLCPP_WARN(this->get_logger(), "Received empty image");
+            return;
+        }
+        
         const double tsec = msg->header.stamp.sec + msg->header.stamp.nanosec * 1e-9;
-        (void)pSLAM->TrackMonocular(cv_ptr->image, tsec);
         
-        // TEMPORARILY COMMENT OUT TO ISOLATE THE ISSUE
-        // publish_topics(msg->header.stamp);
-        
-        static int frame_count = 0;
-        if (++frame_count % 30 == 0) {  // Log every 30 frames
-            RCLCPP_INFO(this->get_logger(), "Processed %d frames", frame_count);
+        // Track with ORB-SLAM3
+        try {
+            Sophus::SE3f pose = pSLAM->TrackMonocular(cv_ptr->image, tsec);
+            
+            // Get tracking state
+            int tracking_state = pSLAM->GetTrackingState();
+            
+            // Debug: Check if SLAM is tracking (every 30 frames)
+            if (frame_count % 30 == 0) {
+                if (tracking_state == ORB_SLAM3::Tracking::OK) {
+                    RCLCPP_INFO(this->get_logger(), "SLAM tracking OK - Frame %d", frame_count);
+                } else {
+                    RCLCPP_WARN(this->get_logger(), "SLAM tracking state: %d - Frame %d", tracking_state, frame_count);
+                }
+            }
+            
+            // Always call publish_topics, even if not tracking perfectly
+            // This allows us to see what's happening
+            publish_topics(msg->header.stamp, Eigen::Vector3f::Zero());
+            
+        } catch (const std::exception& e) {
+            RCLCPP_ERROR(this->get_logger(), "Exception in TrackMonocular: %s", e.what());
         }
     }
     
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr sub_;
     std::string world_frame_id;
     std::string cam_frame_id;
+    std::string image_topic_;
     ORB_SLAM3::System* pSLAM;
     ORB_SLAM3::System::eSensor sensor_type;
 };
