@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>orbslam3_ros</name>
+  <version>1.0.0</version>
+  <description>ROS 2 Jazzy wrapper for ORB-SLAM3 library</description>
+
+  <maintainer email="zang09@naver.com">Haebeom Jung</maintainer>
+  <license>MIT</license>
+  <author>Haebeom Jung</author>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- For generating custom srv -->
+  <build_depend>rosidl_default_generators</build_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
+  <!-- Core ROS 2 dependencies -->
+  <depend>rclcpp</depend>
+  <depend>rclcpp_components</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>cv_bridge</depend>
+  <depend>message_filters</depend>
+  <depend>image_transport</depend>
+  <depend>visualization_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>OpenCV</depend>
+  <depend>Sophus</depend>
+  <depend>Pangolin</depend>
+
+  <!-- ORB-SLAM3 external library -->
+  <depend>ORB_SLAM3</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
