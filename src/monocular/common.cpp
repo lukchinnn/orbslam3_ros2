@@ -603,3 +603,7 @@ void publish_topics(const rclcpp::Time& msg_time, const Eigen::Vector3f& Wbb_bod
         RCLCPP_ERROR_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 5000, "Exception in publish_topics: %s", e.what());
     }
 }
+
+void set_current_input_image(const cv::Mat& image) {
+    current_input_image = image.clone();
+}

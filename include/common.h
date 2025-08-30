@@ -88,6 +88,7 @@ void publish_body_odom(const Sophus::SE3f& Twb,
                       const Eigen::Vector3f& Vwb,
                       const Eigen::Vector3f& Wbb,
                       const rclcpp::Time& stamp);
+void set_current_input_image(const cv::Mat& image);
 
 // === Converters ===
 sensor_msgs::msg::PointCloud2 keypoints_to_pointcloud(const std::vector<cv::KeyPoint>& keypoints,
