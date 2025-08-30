@@ -71,16 +71,21 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 ament_export_dependencies(rosidl_default_runtime)
 rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
 target_link_libraries(ros_mono "${cpp_typesupport_target}")
+
 # Stereo
-# add_executable(ros_stereo
-#   src/stereo/ros_stereo.cpp
-#   src/stereo/stereo-slam-node.cpp
-#   ${COMMON_SRC}
-# )
-# ament_target_dependencies(ros_stereo
-#   rclcpp rclcpp_components sensor_msgs geometry_msgs nav_msgs std_srvs
-#   cv_bridge message_filters tf2 tf2_ros ORB_SLAM3 Pangolin OpenCV
-# )
+add_executable(ros_stereo
+  src/stereo/ros2_stereo.cpp
+  src/monocular/common.cpp
+  # src/stereo/stereo-slam-node.cpp
+  ${COMMON_SRC}
+)
+ament_target_dependencies(ros_stereo
+  rclcpp rclcpp_components sensor_msgs geometry_msgs nav_msgs std_srvs
+  cv_bridge message_filters tf2 tf2_ros ORB_SLAM3 Pangolin OpenCV
+  OpenCV image_transport visualization_msgs std_srvs rosidl_default_runtime
+)
+target_link_libraries(ros_stereo "${cpp_typesupport_target}")
+
 
 # RGB-D
 # add_executable(ros_rgbd
@@ -107,7 +112,7 @@ target_link_libraries(ros_mono "${cpp_typesupport_target}")
 # ======= Install =======
 install(TARGETS
   ros_mono
-  # ros_stereo
+  ros_stereo
   # ros_rgbd
   # ros_stereo_inertial
   DESTINATION lib/${PROJECT_NAME}
