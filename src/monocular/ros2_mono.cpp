@@ -18,7 +18,7 @@ public:
         this->declare_parameter<std::string>("world_frame_id", "map");
         this->declare_parameter<std::string>("cam_frame_id", "camera_link");
         this->declare_parameter<bool>("enable_pangolin", true);
-        this->declare_parameter<std::string>("image_topic", "/camera/camera/color/image_raw");
+        this->declare_parameter<std::string>("image_topic", "right/image_raw");
         
         const std::string voc_file = this->get_parameter("voc_file").as_string();
         const std::string settings_file = this->get_parameter("settings_file").as_string();
