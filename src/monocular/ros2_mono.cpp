@@ -119,6 +119,10 @@ private:
         
         const double tsec = msg->header.stamp.sec + msg->header.stamp.nanosec * 1e-9;
         
+        // Store the original image for later use (both local and global)
+        current_image_ = cv_ptr->image.clone();
+        // ::current_input_image = current_image_;  // Update global variable
+        
         // Track with ORB-SLAM3
         try {
             Sophus::SE3f pose = pSLAM->TrackMonocular(cv_ptr->image, tsec);
@@ -136,7 +140,6 @@ private:
             }
             
             // Always call publish_topics, even if not tracking perfectly
-            // This allows us to see what's happening
             publish_topics(msg->header.stamp, Eigen::Vector3f::Zero());
             
         } catch (const std::exception& e) {
@@ -148,6 +151,7 @@ private:
     std::string world_frame_id;
     std::string cam_frame_id;
     std::string image_topic_;
+    cv::Mat current_image_;  // Store current image for fallback
     ORB_SLAM3::System* pSLAM;
     ORB_SLAM3::System::eSensor sensor_type;
 };

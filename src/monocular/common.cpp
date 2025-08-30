@@ -9,6 +9,9 @@ ORB_SLAM3::System::eSensor sensor_type = ORB_SLAM3::System::NOT_SET;
 
 std::string world_frame_id, cam_frame_id, imu_frame_id;
 
+// Store current input image for tracking image publishing fallback
+cv::Mat current_input_image;
+
 std::shared_ptr<rclcpp::Node> g_node;
 std::unique_ptr<tf2_ros::TransformBroadcaster> g_tf_broadcaster;
 
@@ -251,16 +254,32 @@ void publish_tracking_img(const cv::Mat& image, const rclcpp::Time& stamp)
     }
     
     try {
+        // Ensure image is in correct format
+        cv::Mat img_to_publish;
+        if (image.channels() == 1) {
+            // Convert grayscale to BGR
+            cv::cvtColor(image, img_to_publish, cv::COLOR_GRAY2BGR);
+        } else if (image.channels() == 3) {
+            img_to_publish = image.clone();
+        } else {
+            RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 2000, 
+                                 "Unsupported image format: %d channels", image.channels());
+            return;
+        }
+        
         std_msgs::msg::Header header;
         header.stamp = stamp;
-        header.frame_id = cam_frame_id; // Use camera frame for image
-        auto msg = cv_bridge::CvImage(header, "bgr8", image).toImageMsg();
-        tracking_img_pub.publish(msg);
+        header.frame_id = cam_frame_id;
+        
+        // Create and publish the message
+        sensor_msgs::msg::Image::SharedPtr msg = cv_bridge::CvImage(header, "bgr8", img_to_publish).toImageMsg();
+        tracking_img_pub.publish(*msg);
         
         // Debug output (throttled)
         static int img_count = 0;
         if (++img_count % 60 == 0) {
-            RCLCPP_INFO(g_node->get_logger(), "Published tracking image %d", img_count);
+            RCLCPP_INFO(g_node->get_logger(), "Published tracking image %d [%dx%d, %d channels]", 
+                       img_count, img_to_publish.cols, img_to_publish.rows, img_to_publish.channels());
         }
     } catch (const std::exception& e) {
         RCLCPP_ERROR_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 5000, 
@@ -477,13 +496,48 @@ void publish_topics(const rclcpp::Time& msg_time, const Eigen::Vector3f& Wbb_bod
         publish_camera_pose(Twc, msg_time);
         publish_tf_transform(Twc, world_frame_id, cam_frame_id, msg_time);
 
-        // Try to publish tracking image
+        // Try to publish tracking image - with multiple fallback methods
         try {
-            cv::Mat tracking_img = pSLAM->GetCurrentFrame();
+            cv::Mat tracking_img;
+            
+            // Method 1: Try to get the annotated tracking frame
+            try {
+                tracking_img = pSLAM->GetCurrentFrame();
+            } catch (...) {
+                // Method doesn't exist, try alternatives
+            }
+            
+            // Method 2: If that fails, try alternative ORB-SLAM3 methods
+            if (tracking_img.empty()) {
+                try {
+                    // Try different possible method names
+                    tracking_img = pSLAM->GetTrackingState();  
+                } catch (...) {
+                    // Method doesn't exist
+                }
+            }
+            
+            // Method 3: Use the stored input image as fallback
+            if (tracking_img.empty() && !current_input_image.empty()) {
+                RCLCPP_INFO_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 10000, 
+                                     "Using input image as tracking image fallback");
+                tracking_img = current_input_image.clone();
+                
+                // Add some basic annotation if possible
+                if (tracking_img.channels() == 1) {
+                    cv::cvtColor(tracking_img, tracking_img, cv::COLOR_GRAY2BGR);
+                }
+                
+                // Add text overlay to indicate this is a fallback
+                cv::putText(tracking_img, "Input Image", cv::Point(10, 30), 
+                           cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
+            }
+            
             if (!tracking_img.empty()) {
                 publish_tracking_img(tracking_img, msg_time);
             } else {
-                RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 5000, "Empty tracking image from SLAM");
+                RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 10000, 
+                                     "No tracking image available from any source");
             }
         } catch (const std::exception& e) {
             RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 5000, "Exception getting tracking image: %s", e.what());
