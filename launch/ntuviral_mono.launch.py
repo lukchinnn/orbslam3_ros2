@@ -41,7 +41,7 @@ def generate_launch_description():
         parameters=[{
             'voc_file': voc_file,
             'settings_file': settings_file,
-            'world_frame_id': 'world',
+            'world_frame_id': 'map',
             'cam_frame_id': 'camera',
             'enable_pangolin': False
         }]
