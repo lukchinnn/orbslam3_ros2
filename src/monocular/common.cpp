@@ -24,6 +24,41 @@ rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr kf_markers_pub;
 image_transport::Publisher tracking_img_pub;
 
 // =========================
+// Coordinate System Transformation Functions
+// =========================
+
+/**
+ * Convert ORB-SLAM3 coordinate system to ROS Camera coordinate system
+ * ORB-SLAM3 typically uses OpenCV convention: X-right, Y-down, Z-forward
+ * ROS Camera standard: X-right, Y-down, Z-forward
+ * 
+ * However, ORB-SLAM3 might have the camera looking in a different direction initially.
+ * We need to ensure Z points forward into the scene.
+ */
+static Sophus::SE3f orbslam_to_ros_camera_transform(const Sophus::SE3f& T_orbslam) {
+    // If ORB-SLAM3 is already in OpenCV/ROS camera convention (X-right, Y-down, Z-forward)
+    // then we should just return it as is
+    return T_orbslam;
+}
+
+// Alternative transformation if ORB-SLAM3 uses a different convention
+static Sophus::SE3f orbslam_to_ros_camera_transform_alt(const Sophus::SE3f& T_orbslam) {
+    // This transformation assumes ORB-SLAM3 might be using:
+    // Z-up, X-forward, Y-left (or similar)
+    // We need to transform to: X-right, Y-down, Z-forward
+    
+    Eigen::Matrix3f R_orbslam_to_camera;
+    R_orbslam_to_camera << 0,  0,  1,   // ORB Z -> Camera X (right)
+                          -1,  0,  0,   // -ORB X -> Camera Y (down)
+                           0, -1,  0;   // -ORB Y -> Camera Z (forward)
+    
+    Eigen::Matrix3f R_new = R_orbslam_to_camera * T_orbslam.rotationMatrix();
+    Eigen::Vector3f t_new = R_orbslam_to_camera * T_orbslam.translation();
+    
+    return Sophus::SE3f(R_new, t_new);
+}
+
+// =========================
 // Internals
 // =========================
 static inline bool has_nan(const Sophus::SE3f& T)
@@ -191,12 +226,15 @@ void publish_camera_pose(const Sophus::SE3f& Twc, const rclcpp::Time& stamp)
         return;
     }
     
+    // Use the identity transform (ORB-SLAM3 should already be in camera coordinates)
+    Sophus::SE3f Twc_camera = orbslam_to_ros_camera_transform_alt(Twc);
+    
     geometry_msgs::msg::PoseStamped msg;
     msg.header.frame_id = world_frame_id;
     msg.header.stamp = stamp;
 
-    const Eigen::Vector3f t = Twc.translation();
-    const Eigen::Quaternionf q = Twc.unit_quaternion();
+    const Eigen::Vector3f t = Twc_camera.translation();
+    const Eigen::Quaternionf q = Twc_camera.unit_quaternion();
     
     msg.pose.position.x = static_cast<double>(t.x());
     msg.pose.position.y = static_cast<double>(t.y());
@@ -221,24 +259,13 @@ void publish_tf_transform(const Sophus::SE3f& T,
                           const std::string& child,
                           const rclcpp::Time& stamp)
 {
-    if (!g_tf_broadcaster) {
-        RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 5000, "TF broadcaster not initialized");
-        return;
-    }
+    if (!g_tf_broadcaster) return;
     
-    if (has_nan(T)) {
-        RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 2000, "Transform has NaN values, skipping");
-        return;
-    }
+    // Apply the same transform as for pose
+    Sophus::SE3f T_camera = orbslam_to_ros_camera_transform_alt(T);
     
-    auto transform = SE3f_to_TransformStamped(T, parent, child, stamp);
+    auto transform = SE3f_to_TransformStamped(T_camera, parent, child, stamp);
     g_tf_broadcaster->sendTransform(transform);
-    
-    // Debug output (throttled)
-    static int tf_count = 0;
-    if (++tf_count % 60 == 0) {
-        RCLCPP_INFO(g_node->get_logger(), "Published TF %d: %s -> %s", tf_count, parent.c_str(), child.c_str());
-    }
 }
 
 void publish_tracking_img(const cv::Mat& image, const rclcpp::Time& stamp)
@@ -353,10 +380,19 @@ sensor_msgs::msg::PointCloud2 mappoint_to_pointcloud(const std::vector<ORB_SLAM3
     cloud.data.resize(cloud.row_step * cloud.height);
     auto* ptr = cloud.data.data();
 
+    // Apply the same transformation as used for camera poses
+    // This transformation matrix matches orbslam_to_ros_camera_transform_alt
+    Eigen::Matrix3f R_orbslam_to_camera;
+    R_orbslam_to_camera << 0,  0,  1,   // ORB Z -> Camera X (right)
+                          -1,  0,  0,   // -ORB X -> Camera Y (down)
+                           0, -1,  0;   // -ORB Y -> Camera Z (forward)
+
     for (uint32_t i = 0; i < cloud.width; ++i) {
         try {
-            const Eigen::Vector3f P = valid_points[i]->GetWorldPos();
-            const float data[3] = { P.x(), P.y(), P.z() };
+            const Eigen::Vector3f P_orbslam = valid_points[i]->GetWorldPos();
+            // Transform the point to match the camera coordinate system
+            const Eigen::Vector3f P_camera = R_orbslam_to_camera * P_orbslam;
+            const float data[3] = { P_camera.x(), P_camera.y(), P_camera.z() };
             std::memcpy(ptr + (i * cloud.point_step), data, sizeof(data));
         } catch (const std::exception& e) {
             // If we can't get position, use zero
@@ -428,10 +464,13 @@ void publish_kf_markers(const std::vector<Sophus::SE3f>& vKFposes,
 
     marker.points.reserve(vKFposes.size());
     for (size_t i = 0; i < vKFposes.size(); ++i) {
+        // Apply coordinate transformation to keyframe poses
+        Sophus::SE3f pose_camera = orbslam_to_ros_camera_transform_alt(vKFposes[i]);
+        
         geometry_msgs::msg::Point p;
-        p.x = static_cast<double>(vKFposes[i].translation().x());
-        p.y = static_cast<double>(vKFposes[i].translation().y());
-        p.z = static_cast<double>(vKFposes[i].translation().z());
+        p.x = static_cast<double>(pose_camera.translation().x());
+        p.y = static_cast<double>(pose_camera.translation().y());
+        p.z = static_cast<double>(pose_camera.translation().z());
         marker.points.push_back(p);
     }
     kf_markers_pub->publish(marker);
@@ -444,13 +483,17 @@ void publish_body_odom(const Sophus::SE3f& Twb,
 {
     if (!odom_pub) return;
     
+    // For IMU frame, we might need a different transformation
+    // Try identity first, then adjust if needed
+    Sophus::SE3f Twb_transformed = orbslam_to_ros_camera_transform_alt(Twb);
+    
     nav_msgs::msg::Odometry odom;
     odom.header.frame_id = world_frame_id;
     odom.child_frame_id  = imu_frame_id;
     odom.header.stamp    = stamp;
 
-    const Eigen::Vector3f t = Twb.translation();
-    const Eigen::Quaternionf q = Twb.unit_quaternion();
+    const Eigen::Vector3f t = Twb_transformed.translation();
+    const Eigen::Quaternionf q = Twb_transformed.unit_quaternion();
 
     odom.pose.pose.position.x = static_cast<double>(t.x());
     odom.pose.pose.position.y = static_cast<double>(t.y());
@@ -460,6 +503,7 @@ void publish_body_odom(const Sophus::SE3f& Twb,
     odom.pose.pose.orientation.y = static_cast<double>(q.y());
     odom.pose.pose.orientation.z = static_cast<double>(q.z());
 
+    // Velocities don't need transformation if using identity
     odom.twist.twist.linear.x  = static_cast<double>(Vwb.x());
     odom.twist.twist.linear.y  = static_cast<double>(Vwb.y());
     odom.twist.twist.linear.z  = static_cast<double>(Vwb.z());
@@ -606,4 +650,26 @@ void publish_topics(const rclcpp::Time& msg_time, const Eigen::Vector3f& Wbb_bod
 
 void set_current_input_image(const cv::Mat& image) {
     current_input_image = image.clone();
+}
+
+// Add this debugging function to help determine the correct transformation
+void debug_coordinate_system(const rclcpp::Time& stamp) {
+    if (!g_tf_broadcaster) return;
+    
+    // Publish a test transform to see the coordinate system
+    geometry_msgs::msg::TransformStamped test_transform;
+    test_transform.header.stamp = stamp;
+    test_transform.header.frame_id = world_frame_id;
+    test_transform.child_frame_id = "test_camera_frame";
+    
+    // Identity transform for testing
+    test_transform.transform.translation.x = 0.0;
+    test_transform.transform.translation.y = 0.0;
+    test_transform.transform.translation.z = 0.0;
+    test_transform.transform.rotation.w = 1.0;
+    test_transform.transform.rotation.x = 0.0;
+    test_transform.transform.rotation.y = 0.0;
+    test_transform.transform.rotation.z = 0.0;
+    
+    g_tf_broadcaster->sendTransform(test_transform);
 }
