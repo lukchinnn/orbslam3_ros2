@@ -108,18 +108,22 @@ private:
             "/right/image_raw", 10, 
             std::bind(&StereoSlamNode::rightImageCallback, this, std::placeholders::_1));
         
-        // Create message filter subscribers
+        // Create message filter subscribers with explicit QoS
         left_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image>>(
-            this, "/left/image_raw");
+            this, "/left/image_raw", rmw_qos_profile_sensor_data);
         right_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image>>(
-            this, "/right/image_raw");
+            this, "/right/image_raw", rmw_qos_profile_sensor_data);
         
-        // Create synchronizer with more permissive settings
+        // Create synchronizer with more permissive settings for better sync
         typedef message_filters::sync_policies::ApproximateTime<
             sensor_msgs::msg::Image, sensor_msgs::msg::Image> MySyncPolicy;
         
+        // Use larger queue and more permissive time tolerance
         sync_ = std::make_shared<message_filters::Synchronizer<MySyncPolicy>>(
-            MySyncPolicy(20), *left_sub_, *right_sub_);  // Increased queue size
+            MySyncPolicy(50), *left_sub_, *right_sub_);  // Increased queue size to 50
+        
+        // Set time tolerance for synchronization (100ms tolerance)
+        sync_->setAgePenalty(0.1);
         
         // Register callback
         sync_->registerCallback(
@@ -129,7 +133,7 @@ private:
         RCLCPP_INFO(this->get_logger(), "Subscribed to stereo topics:");
         RCLCPP_INFO(this->get_logger(), "  Left:  /left/image_raw");
         RCLCPP_INFO(this->get_logger(), "  Right: /right/image_raw");
-        RCLCPP_INFO(this->get_logger(), "Synchronizer initialized with ApproximateTime policy");
+        RCLCPP_INFO(this->get_logger(), "Synchronizer initialized with ApproximateTime policy (queue=50, tolerance=100ms)");
     }
     
     // Debug callbacks to check individual image reception
