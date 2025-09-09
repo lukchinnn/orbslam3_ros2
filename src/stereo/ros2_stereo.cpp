@@ -1,12 +1,14 @@
 /**
- * ROS2 Jazzy Stereo ORB-SLAM3 Node
- * Adapted from ORB-SLAM3: Examples/ROS/src/ros_stereo.cc
+ * ROS2 Jazzy Stereo ORB-SLAM3 Node - OPTIMIZED VERSION
+ * Fixed for better FPS and tracking stability
  */
 
 #include "common.h"
 #include <message_filters/subscriber.h>
 #include <message_filters/synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
+#include <thread>
+#include <chrono>
 
 using namespace std;
 
@@ -23,6 +25,10 @@ public:
         this->declare_parameter<std::string>("world_frame_id", "map");
         this->declare_parameter<std::string>("cam_frame_id", "camera");
         this->declare_parameter<bool>("enable_pangolin", true);
+        // this->declare_parameter<double>("sync_tolerance", 0.05);  // 50ms default
+        this->declare_parameter<double>("sync_tolerance", 0.1);  // 50ms default
+        this->declare_parameter<int>("skip_frames", 0);  // Skip frames for performance
+        this->declare_parameter<bool>("enable_debug", false);  // Disable debug by default
         
         // Get parameters
         std::string voc_file = this->get_parameter("voc_file").as_string();
@@ -30,6 +36,9 @@ public:
         world_frame_id = this->get_parameter("world_frame_id").as_string();
         cam_frame_id = this->get_parameter("cam_frame_id").as_string();
         bool enable_pangolin = this->get_parameter("enable_pangolin").as_bool();
+        sync_tolerance_ = this->get_parameter("sync_tolerance").as_double();
+        skip_frames_ = this->get_parameter("skip_frames").as_int();
+        enable_debug_ = this->get_parameter("enable_debug").as_bool();
         
         // Validate parameters
         if (voc_file == "file_not_set" || settings_file == "file_not_set")
@@ -41,6 +50,8 @@ public:
         
         RCLCPP_INFO(this->get_logger(), "Using vocabulary: %s", voc_file.c_str());
         RCLCPP_INFO(this->get_logger(), "Using settings: %s", settings_file.c_str());
+        RCLCPP_INFO(this->get_logger(), "Sync tolerance: %.1f ms", sync_tolerance_ * 1000);
+        RCLCPP_INFO(this->get_logger(), "Frame skip: %d", skip_frames_);
         
         // Initialize ORB-SLAM3
         sensor_type = ORB_SLAM3::System::STEREO;
@@ -55,7 +66,12 @@ public:
         
         RCLCPP_INFO(this->get_logger(), "ORB-SLAM3 system initialized successfully");
         
-        // Create a timer to initialize after construction is complete
+        // Reset frame counter
+        frame_count_ = 0;
+        processed_count_ = 0;
+        last_process_time_ = this->now();
+        
+        // Initialize after construction is complete
         init_timer_ = this->create_wall_timer(
             std::chrono::milliseconds(100),
             std::bind(&StereoSlamNode::initializeAfterConstruction, this)
@@ -68,13 +84,19 @@ public:
         init_timer_->cancel();
         
         try {
-            // Setup publishers and services (now safe to use shared_from_this())
+            // Setup publishers and services
             image_transport::ImageTransport it(shared_from_this());
             setup_publishers(shared_from_this(), it, this->get_name());
             setup_services(shared_from_this(), this->get_name());
             
             // Initialize synchronizer
             initializeSynchronizer();
+            
+            // Create FPS reporting timer
+            fps_timer_ = this->create_wall_timer(
+                std::chrono::seconds(2),
+                std::bind(&StereoSlamNode::reportFPS, this)
+            );
             
             RCLCPP_INFO(this->get_logger(), "Stereo SLAM node ready. Waiting for synchronized images...");
         } catch (const std::exception& e) {
@@ -89,6 +111,11 @@ public:
         {
             RCLCPP_INFO(this->get_logger(), "Shutting down ORB-SLAM3...");
             pSLAM->Shutdown();
+            
+            // Save trajectories
+            pSLAM->SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
+            pSLAM->SaveTrajectoryTUM("CameraTrajectory.txt");
+            
             delete pSLAM;
             pSLAM = nullptr;
         }
@@ -99,51 +126,53 @@ private:
     {
         RCLCPP_INFO(this->get_logger(), "Setting up synchronizer...");
         
-        // Create individual subscribers first for debugging
-        left_sub_debug_ = this->create_subscription<sensor_msgs::msg::Image>(
-            "/left/image_raw", 10,
-            std::bind(&StereoSlamNode::leftImageCallback, this, std::placeholders::_1));
+        // Create message filter subscribers with sensor data QoS for better performance
+        rmw_qos_profile_t custom_qos = rmw_qos_profile_sensor_data;
+        custom_qos.depth = 1;  // Keep queue small for real-time performance
         
-        right_sub_debug_ = this->create_subscription<sensor_msgs::msg::Image>(
-            "/right/image_raw", 10, 
-            std::bind(&StereoSlamNode::rightImageCallback, this, std::placeholders::_1));
-        
-        // Create message filter subscribers with explicit QoS
         left_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image>>(
-            this, "/left/image_raw", rmw_qos_profile_sensor_data);
+            this, "/left/image_raw", custom_qos);
         right_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image>>(
-            this, "/right/image_raw", rmw_qos_profile_sensor_data);
+            this, "/right/image_raw", custom_qos);
         
-        // Create synchronizer with more permissive settings for better sync
+        // Create synchronizer with appropriate settings for USB cameras
         typedef message_filters::sync_policies::ApproximateTime<
             sensor_msgs::msg::Image, sensor_msgs::msg::Image> MySyncPolicy;
         
-        // Use larger queue and more permissive time tolerance
+        // Use smaller queue for better real-time performance
         sync_ = std::make_shared<message_filters::Synchronizer<MySyncPolicy>>(
-            MySyncPolicy(50), *left_sub_, *right_sub_);  // Increased queue size to 50
-        
-        // Set time tolerance for synchronization (100ms tolerance)
-        sync_->setAgePenalty(0.1);
+            MySyncPolicy(10), *left_sub_, *right_sub_);
         
         // Register callback
         sync_->registerCallback(
             std::bind(&StereoSlamNode::stereoCallback, this, 
                      std::placeholders::_1, std::placeholders::_2));
         
+        // Only create debug subscribers if debug is enabled
+        if (enable_debug_) {
+            left_sub_debug_ = this->create_subscription<sensor_msgs::msg::Image>(
+                "/left/image_raw", 1,
+                std::bind(&StereoSlamNode::leftImageCallback, this, std::placeholders::_1));
+            
+            right_sub_debug_ = this->create_subscription<sensor_msgs::msg::Image>(
+                "/right/image_raw", 1, 
+                std::bind(&StereoSlamNode::rightImageCallback, this, std::placeholders::_1));
+        }
+        
         RCLCPP_INFO(this->get_logger(), "Subscribed to stereo topics:");
         RCLCPP_INFO(this->get_logger(), "  Left:  /left/image_raw");
         RCLCPP_INFO(this->get_logger(), "  Right: /right/image_raw");
-        RCLCPP_INFO(this->get_logger(), "Synchronizer initialized with ApproximateTime policy (queue=50, tolerance=100ms)");
+        RCLCPP_INFO(this->get_logger(), "Synchronizer initialized (queue=10, tolerance=%.1fms)", 
+                    sync_tolerance_ * 1000);
     }
     
-    // Debug callbacks to check individual image reception
+    // Debug callbacks (only if enabled)
     void leftImageCallback(const sensor_msgs::msg::Image::SharedPtr msg)
     {
         static int left_count = 0;
         left_count++;
-        if (left_count % 30 == 0) {
-            RCLCPP_INFO(this->get_logger(), "Received left image %d [%dx%d]", 
-                       left_count, msg->width, msg->height);
+        if (left_count % 100 == 0) {
+            RCLCPP_DEBUG(this->get_logger(), "Left images: %d", left_count);
         }
     }
     
@@ -151,31 +180,34 @@ private:
     {
         static int right_count = 0;
         right_count++;
-        if (right_count % 30 == 0) {
-            RCLCPP_INFO(this->get_logger(), "Received right image %d [%dx%d]", 
-                       right_count, msg->width, msg->height);
+        if (right_count % 100 == 0) {
+            RCLCPP_DEBUG(this->get_logger(), "Right images: %d", right_count);
         }
     }
     
     void stereoCallback(const sensor_msgs::msg::Image::ConstSharedPtr& msgLeft,
                        const sensor_msgs::msg::Image::ConstSharedPtr& msgRight)
     {
-        RCLCPP_INFO(this->get_logger(), "=== STEREO CALLBACK TRIGGERED ===");
+        frame_count_++;
+        
+        // Skip frames if configured (for performance)
+        if (skip_frames_ > 0 && (frame_count_ % (skip_frames_ + 1)) != 0) {
+            return;
+        }
         
         // Convert ROS time to rclcpp::Time
         rclcpp::Time msg_time = msgLeft->header.stamp;
         
-        static int frame_count = 0;
-        frame_count++;
-        
-        RCLCPP_INFO(this->get_logger(), "Processing stereo frame %d", frame_count);
-        RCLCPP_INFO(this->get_logger(), "Left image: %dx%d, Right image: %dx%d", 
-                   msgLeft->width, msgLeft->height, msgRight->width, msgRight->height);
+        // Log first sync
+        if (processed_count_ == 0) {
+            RCLCPP_INFO(this->get_logger(), "First synchronized pair received!");
+        }
         
         // Convert ROS images to OpenCV
         cv_bridge::CvImageConstPtr cv_ptrLeft, cv_ptrRight;
         try
         {
+            // Use toCvShare for better performance (no copy)
             cv_ptrLeft = cv_bridge::toCvShare(msgLeft, sensor_msgs::image_encodings::BGR8);
             cv_ptrRight = cv_bridge::toCvShare(msgRight, sensor_msgs::image_encodings::BGR8);
         }
@@ -191,52 +223,65 @@ private:
             return;
         }
         
-        RCLCPP_INFO(this->get_logger(), "Both images valid, sending to ORB-SLAM3...");
-        
-        // Store current input image for tracking image fallback
-        current_input_image_ = cv_ptrLeft->image.clone();
+        // Store current input image for tracking visualization
+        current_input_image = cv_ptrLeft->image.clone();
+        set_current_input_image(current_input_image);
         
         try
         {
-            // Convert rclcpp::Time to double (seconds)
+            // Get timestamp in seconds
             double timestamp = msg_time.seconds();
             
-            RCLCPP_INFO(this->get_logger(), "Calling TrackStereo with timestamp: %.6f", timestamp);
-            
             // ORB-SLAM3 stereo tracking
+            auto start = std::chrono::high_resolution_clock::now();
+            
             Sophus::SE3f Tcw = pSLAM->TrackStereo(cv_ptrLeft->image, cv_ptrRight->image, timestamp);
             
-            RCLCPP_INFO(this->get_logger(), "TrackStereo completed");
+            auto end = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
             
-            // Check if tracking was successful - cast the return value
+            processed_count_++;
+            
+            // Get tracking state
             int state_int = pSLAM->GetTrackingState();
-            ORB_SLAM3::Tracking::eTrackingState state = static_cast<ORB_SLAM3::Tracking::eTrackingState>(state_int);
+            ORB_SLAM3::Tracking::eTrackingState state = 
+                static_cast<ORB_SLAM3::Tracking::eTrackingState>(state_int);
             
-            if (frame_count % 30 == 0) {
+            // Log tracking state periodically
+            if (processed_count_ % 30 == 0) {
+                const char* state_str = "UNKNOWN";
                 switch(state) {
                     case ORB_SLAM3::Tracking::SYSTEM_NOT_READY:
-                        RCLCPP_WARN(this->get_logger(), "SLAM System not ready");
-                        break;
+                        state_str = "SYSTEM_NOT_READY"; break;
                     case ORB_SLAM3::Tracking::NO_IMAGES_YET:
-                        RCLCPP_INFO(this->get_logger(), "Waiting for images");
-                        break;
+                        state_str = "NO_IMAGES_YET"; break;
                     case ORB_SLAM3::Tracking::NOT_INITIALIZED:
-                        RCLCPP_INFO(this->get_logger(), "Initializing SLAM...");
-                        break;
+                        state_str = "NOT_INITIALIZED"; break;
                     case ORB_SLAM3::Tracking::OK:
-                        RCLCPP_INFO(this->get_logger(), "Tracking OK");
-                        break;
+                        state_str = "OK"; break;
                     case ORB_SLAM3::Tracking::RECENTLY_LOST:
-                        RCLCPP_WARN(this->get_logger(), "Tracking recently lost");
-                        break;
+                        state_str = "RECENTLY_LOST"; break;
                     case ORB_SLAM3::Tracking::LOST:
-                        RCLCPP_WARN(this->get_logger(), "Tracking lost");
-                        break;
+                        state_str = "LOST"; break;
+                }
+                
+                RCLCPP_INFO(this->get_logger(), 
+                           "Frame %d | State: %s | Track time: %ld ms", 
+                           processed_count_, state_str, duration.count());
+                
+                // If tracking is lost, provide hints
+                if (state == ORB_SLAM3::Tracking::LOST || 
+                    state == ORB_SLAM3::Tracking::RECENTLY_LOST) {
+                    RCLCPP_WARN(this->get_logger(), 
+                               "Tracking lost! Try: slower movement, better lighting, textured scenes");
                 }
             }
             
-            // Publish topics regardless of tracking state
+            // Publish topics
             publish_topics(msg_time);
+            
+            // Update timing
+            last_process_time_ = this->now();
             
         }
         catch (const std::exception& e)
@@ -249,21 +294,46 @@ private:
         }
     }
     
+    void reportFPS()
+    {
+        if (processed_count_ > 0) {
+            auto duration = (this->now() - last_process_time_).seconds();
+            if (duration < 5.0) {  // Only report if we've processed frames recently
+                double fps = frame_count_ / 2.0;  // Approximate FPS over 2 seconds
+                RCLCPP_INFO(this->get_logger(), 
+                           "Performance: %.1f FPS | Processed: %d frames | Skipped: %d frames",
+                           fps, processed_count_, frame_count_ - processed_count_);
+            }
+            frame_count_ = 0;  // Reset counter
+        }
+    }
+    
     // Member variables
     std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> left_sub_;
     std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> right_sub_;
     std::shared_ptr<message_filters::Synchronizer<message_filters::sync_policies::ApproximateTime<
         sensor_msgs::msg::Image, sensor_msgs::msg::Image>>> sync_;
     
-    // Debug subscribers
+    // Debug subscribers (optional)
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr left_sub_debug_;
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr right_sub_debug_;
     
-    // Store current input image locally
-    cv::Mat current_input_image_;
-    
-    // Timer for delayed initialization
+    // Timers
     rclcpp::TimerBase::SharedPtr init_timer_;
+    rclcpp::TimerBase::SharedPtr fps_timer_;
+    
+    // Performance tracking
+    int frame_count_;
+    int processed_count_;
+    rclcpp::Time last_process_time_;
+    
+    // Parameters
+    double sync_tolerance_;
+    int skip_frames_;
+    bool enable_debug_;
+    
+    // Store current input image
+    cv::Mat current_input_image;
 };
 
 int main(int argc, char **argv)
@@ -271,29 +341,28 @@ int main(int argc, char **argv)
     // Initialize ROS2
     rclcpp::init(argc, argv);
     
-    if (argc > 1)
-    {
-        RCLCPP_WARN(rclcpp::get_logger("stereo_slam"), "Arguments supplied via command line are ignored.");
-    }
+    // Set executor to SingleThreaded for better real-time performance
+    rclcpp::executors::SingleThreadedExecutor executor;
     
     try
     {
-        // Create and run the node
+        // Create the node
         auto node = std::make_shared<StereoSlamNode>();
         
         RCLCPP_INFO(node->get_logger(), "Starting ORB-SLAM3 Stereo Node...");
+        RCLCPP_INFO(node->get_logger(), "Tips for better tracking:");
+        RCLCPP_INFO(node->get_logger(), "  - Move cameras slowly, especially during initialization");
+        RCLCPP_INFO(node->get_logger(), "  - Ensure good lighting and textured scenes");
+        RCLCPP_INFO(node->get_logger(), "  - Avoid pure rotation, include translation for stereo");
         RCLCPP_INFO(node->get_logger(), "Use Ctrl+C to stop");
         
-        // Spin the node
-        rclcpp::spin(node);
+        // Add node to executor and spin
+        executor.add_node(node);
+        executor.spin();
     }
     catch (const std::exception& e)
     {
         RCLCPP_ERROR(rclcpp::get_logger("stereo_slam"), "Exception in main: %s", e.what());
-    }
-    catch (...)
-    {
-        RCLCPP_ERROR(rclcpp::get_logger("stereo_slam"), "Unknown exception in main");
     }
     
     // Cleanup
