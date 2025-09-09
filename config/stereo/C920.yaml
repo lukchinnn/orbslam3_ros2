@@ -1,11 +1,14 @@
 %YAML:1.0
+# Corrected Configuration for Logitech C920 Stereo Setup
+# Based on your baseline of 10.95cm (0.1095m)
 
 #--------------------------------------------------------------------------------------------
 # Camera Parameters. Adjust them!
 #--------------------------------------------------------------------------------------------
 Camera.type: "PinHole"
 
-# Camera calibration and distortion parameters (OpenCV) 
+# Camera calibration and distortion parameters (OpenCV)
+# These are your original values for Camera1 (LEFT)
 Camera.fx: 543.9
 Camera.fy: 546.7
 Camera.cx: 285.2
@@ -15,7 +18,21 @@ Camera.k1: 0.080689
 Camera.k2: -0.0155603
 Camera.p1: -0.001155
 Camera.p2: -0.004102
+Camera.k3: 0.0  # Added k3
 
+# Camera2 (RIGHT) - Should be similar for identical C920 cameras
+# Camera2.fx: 543.9
+# Camera2.fy: 546.7
+# Camera2.cx: 285.2
+# Camera2.cy: 225.4
+
+# Camera2.k1: 0.080689
+# Camera2.k2: -0.0155603
+# Camera2.p1: -0.001155
+# Camera2.p2: -0.004102
+# Camera2.k3: 0.0
+
+# Image dimensions
 Camera.width: 640
 Camera.height: 480
 
@@ -23,13 +40,115 @@ Camera.height: 480
 Camera.fps: 10.0
 
 # stereo baseline times fx
-Camera.bf: 387.5744
+# CORRECTED: Should be baseline_in_meters * fx = 0.1095 * 543.9
+# Camera.bf: 59.55705  # This was wrong! Was 387.5744
+Camera.bf: 69.06965  # This was wrong! Was 387.5744
+
 
 # Color order of the images (0: BGR, 1: RGB. It is ignored if images are grayscale)
 Camera.RGB: 1
 
 # Close/Far threshold. Baseline times.
 ThDepth: 40.0
+
+# CRITICAL: Transformation matrix from Camera1 to Camera2
+# This was MISSING in your original file!
+# Stereo.T_c1_c2: !!opencv-matrix
+#    rows: 4
+#    cols: 4
+#    dt: f
+#    data: [1.0, 0.0, 0.0, -0.1095,  # -baseline in meters (negative for right camera)
+#           0.0, 1.0, 0.0, 0.0,
+#           0.0, 0.0, 1.0, 0.0,
+#           0.0, 0.0, 0.0, 1.0]
+
+# Stereo baseline in meters (for reference)
+Stereo.b: 0.1095
+
+#--------------------------------------------------------------------------------------------
+# Stereo Rectification Parameters (REQUIRED for stereo)
+# These were MISSING in your original file
+#--------------------------------------------------------------------------------------------
+LEFT.height: 480
+LEFT.width: 640
+LEFT.D: !!opencv-matrix
+   rows: 1
+   cols: 5
+   dt: d
+   data: [0.059852, -0.177031, -0.001192, -0.003334, 0.000000]
+
+LEFT.K: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [587.27242,   0.     , 326.13532,
+            0.     , 585.91453, 240.24576,
+            0.     ,   0.     ,   1.     ]
+
+# LEFT.R: !!opencv-matrix
+#    rows: 3
+#    cols: 3
+#    dt: d
+#    data: [1.0, 0.0, 0.0,
+#           0.0, 1.0, 0.0,
+#           0.0, 0.0, 1.0]
+
+LEFT.R: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [ 0.99755794, -0.01805229,  0.06747049,
+            0.01698868,  0.99972273,  0.01630472,
+            -0.06774612, -0.01511867,  0.99758804]
+
+# LEFT.P: !!opencv-matrix
+#    rows: 3
+#    cols: 4
+#    dt: d
+#    data: [543.9, 0.0, 285.2, 0.0,
+#           0.0, 546.7, 225.4, 0.0,
+#           0.0, 0.0, 1.0, 0.0]
+
+LEFT.P: !!opencv-matrix
+   rows: 3
+   cols: 4
+   dt: d
+   data: [658.21628,   0.     , 252.00515,   0.     ,
+            0.     , 658.21628, 240.20231,   0.     ,
+            0.     ,   0.     ,   1.     ,   0.     ]
+
+
+RIGHT.height: 480
+RIGHT.width: 640
+RIGHT.D: !!opencv-matrix
+   rows: 1
+   cols: 5
+   dt: d
+   data: [0.156971, -0.426013, 0.002434, 0.008741, 0.000000]
+
+RIGHT.K: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [594.95414,   0.     , 332.38311,
+            0.     , 593.77998, 239.87835,
+            0.     ,   0.     ,   1.     ]
+
+RIGHT.R: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [ 0.98973879, -0.00712892,  0.14271059,
+            0.00937741,  0.99984218, -0.0150892 ,
+            -0.1425805 ,  0.01627262,  0.98964943]
+
+RIGHT.P: !!opencv-matrix
+   rows: 3
+   cols: 4
+   dt: d
+   data: [658.21628,   0.     , 252.00515,  69.06965,
+            0.     , 658.21628, 240.20231,   0.     ,
+            0.     ,   0.     ,   1.     ,   0.     ]
 
 #--------------------------------------------------------------------------------------------
 # ORB Parameters
@@ -57,11 +176,10 @@ ORBextractor.minThFAST: 7
 Viewer.KeyFrameSize: 0.6
 Viewer.KeyFrameLineWidth: 2
 Viewer.GraphLineWidth: 1
-Viewer.PointSize:2
+Viewer.PointSize: 2
 Viewer.CameraSize: 0.7
 Viewer.CameraLineWidth: 3
 Viewer.ViewpointX: 0
 Viewer.ViewpointY: -100
 Viewer.ViewpointZ: -0.1
 Viewer.ViewpointF: 2000
-
