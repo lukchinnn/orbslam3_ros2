@@ -18,16 +18,16 @@ def generate_launch_description():
     rviz_config = "/home/lukchin/skuba_ws/src/orbslam3_ros2/config/ntuviral_no_imu.rviz"
 
     # Launch the RealSense camera driver
-    realsense_node = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(pkg_realsense, 'launch', 'rs_launch.py')
-        ),
-        launch_arguments={
-            'enable_color': 'true',
-            'enable_depth': 'false',   # we want pure monocular
-            'pointcloud.enable': 'false'
-        }.items()
-    )
+    # realsense_node = IncludeLaunchDescription(
+    #     PythonLaunchDescriptionSource(
+    #         os.path.join(pkg_realsense, 'launch', 'rs_launch.py')
+    #     ),
+    #     launch_arguments={
+    #         'enable_color': 'true',
+    #         'enable_depth': 'false',   # we want pure monocular
+    #         'pointcloud.enable': 'false'
+    #     }.items()
+    # )
 
     # ORB-SLAM3 main node
     orbslam_node = Node(
@@ -62,7 +62,7 @@ def generate_launch_description():
             default_value='false',
             description='Use simulation clock if true'
         ),
-        realsense_node,
+        # realsense_node,
         orbslam_node,
         rviz_node
     ])
