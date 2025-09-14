@@ -88,15 +88,17 @@ target_link_libraries(ros_stereo "${cpp_typesupport_target}")
 
 
 # RGB-D
-# add_executable(ros_rgbd
-#   src/rgbd/ros_rgbd.cpp
-#   src/rgbd/rgbd-slam-node.cpp
-#   ${COMMON_SRC}
-# )
-# ament_target_dependencies(ros_rgbd
-#   rclcpp rclcpp_components sensor_msgs geometry_msgs nav_msgs std_srvs
-#   cv_bridge message_filters tf2 tf2_ros ORB_SLAM3 Pangolin OpenCV
-# )
+add_executable(ros_rgbd
+  src/rgbd/ros2_rgbd.cpp
+  src/monocular/common.cpp
+  ${COMMON_SRC}
+)
+ament_target_dependencies(ros_rgbd
+  rclcpp rclcpp_components sensor_msgs geometry_msgs nav_msgs std_srvs
+  cv_bridge message_filters tf2 tf2_ros ORB_SLAM3 Pangolin OpenCV
+  OpenCV image_transport visualization_msgs std_srvs rosidl_default_runtime
+)
+target_link_libraries(ros_rgbd "${cpp_typesupport_target}")
 
 # Stereo-Inertial
 # add_executable(ros_stereo_inertial
@@ -113,7 +115,7 @@ target_link_libraries(ros_stereo "${cpp_typesupport_target}")
 install(TARGETS
   ros_mono
   ros_stereo
-  # ros_rgbd
+  ros_rgbd
   # ros_stereo_inertial
   DESTINATION lib/${PROJECT_NAME}
 )
