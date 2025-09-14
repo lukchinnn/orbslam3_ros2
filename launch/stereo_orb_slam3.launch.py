@@ -19,7 +19,7 @@ def generate_launch_description():
         DeclareLaunchArgument('right_device', 
             default_value='/dev/v4l/by-id/usb-046d_HD_Pro_Webcam_C920_61EAC31F-video-index0'),
         DeclareLaunchArgument('voc_file', 
-            default_value='/home/lukchin/ORB_SLAM3/Vocabulary/ORBvoc.txt'),
+            default_value='/home/lukchin/skuba_ws/src/orbslam3_ros2/third_party/ORB_SLAM3/Vocabulary/ORBvoc.txt'),
         DeclareLaunchArgument('settings_file', 
             default_value='/home/lukchin/skuba_ws/src/orbslam3_ros2/config/stereo/C920.yaml'),
         DeclareLaunchArgument('enable_pangolin', default_value='true'),

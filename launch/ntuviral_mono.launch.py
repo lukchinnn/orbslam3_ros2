@@ -13,7 +13,7 @@ def generate_launch_description():
     pkg_realsense = get_package_share_directory('realsense2_camera')
 
     # Paths
-    voc_file = "/home/lukchin/ORB_SLAM3/Vocabulary/ORBvoc.txt"
+    voc_file = "/home/lukchin/skuba_ws/src/orbslam3_ros2/third_party/ORB_SLAM3/Vocabulary/ORBvoc.txt"
     settings_file = "/home/lukchin/skuba_ws/src/orbslam3_ros2/config/monocular/RealSense_D435i.yaml"
     rviz_config = "/home/lukchin/skuba_ws/src/orbslam3_ros2/config/ntuviral_no_imu.rviz"
 

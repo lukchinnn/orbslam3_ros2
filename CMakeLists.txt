@@ -14,6 +14,18 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+# Set ORB_SLAM3 root directory for include paths
+if(ORB_SLAM3_FOUND)
+    # Update include directories to use local path
+    include_directories(
+        include
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ORB_SLAM3/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ORB_SLAM3/include/CameraModels
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ORB_SLAM3/Thirdparty/Sophus
+        ${OpenCV_INCLUDE_DIRS}
+    )
+endif()
+
 # Dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -36,11 +48,20 @@ find_package(ORB_SLAM3 REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 # Include dirs
+# include_directories(
+#   include
+#   ${ORB_SLAM3_ROOT_DIR}/include
+#   ${ORB_SLAM3_ROOT_DIR}/include/CameraModels
+#   ${ORB_SLAM3_ROOT_DIR}/Thirdparty/Sophus
+#   ${OpenCV_INCLUDE_DIRS}
+# )
+
 include_directories(
   include
-  ${ORB_SLAM3_ROOT_DIR}/include
-  ${ORB_SLAM3_ROOT_DIR}/include/CameraModels
-  ${ORB_SLAM3_ROOT_DIR}/Thirdparty/Sophus
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ORB_SLAM3/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ORB_SLAM3/include/CameraModels
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ORB_SLAM3/Thirdparty/Sophus
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ORB_SLAM3  # This allows "Thirdparty/DBoW2/DBoW2/BowVector.h"
   ${OpenCV_INCLUDE_DIRS}
 )
 
@@ -126,3 +147,6 @@ install(DIRECTORY launch config Vocabulary
 )
 
 ament_package()
+
+
+# export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/lukchin/skuba_ws/src/orbslam3_ros2/third_party/ORB_SLAM3/lib:/home/lukchin/skuba_ws/src/orbslam3_ros2/third_party/ORB_SLAM3/Thirdparty/DBoW2/lib:/home/lukchin/skuba_ws/src/orbslam3_ros2/third_party/ORB_SLAM3/Thirdparty/g2o/lib
