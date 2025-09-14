@@ -13,7 +13,7 @@ import os
 def generate_launch_description():
     # Arguments
     declare_args = [
-        DeclareLaunchArgument('baseline', default_value='0.1095'),
+        DeclareLaunchArgument('baseline', default_value='0.12'),
         DeclareLaunchArgument('left_device', 
             default_value='/dev/v4l/by-id/usb-046d_HD_Pro_Webcam_C920_1AC0956F-video-index0'),
         DeclareLaunchArgument('right_device', 
@@ -87,7 +87,7 @@ def generate_launch_description():
                 parameters=[{
                     'voc_file': LaunchConfiguration('voc_file'),
                     'settings_file': LaunchConfiguration('settings_file'),
-                    'world_frame_id': 'world',
+                    'world_frame_id': 'map',
                     'cam_frame_id': 'camera',
                     'enable_pangolin': LaunchConfiguration('enable_pangolin')
                 }],

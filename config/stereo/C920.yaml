@@ -1,73 +1,53 @@
 %YAML:1.0
-# Corrected Configuration for Logitech C920 Stereo Setup
-# Based on your baseline of 10.95cm (0.1095m)
+
+#--------------------------------------------------------------------------------------------
+# System config
+#--------------------------------------------------------------------------------------------
+
+# When the variables are commented, the system doesn't load a previous session or not store the current one
+
+# If the LoadFile doesn't exist, the system give a message and create a new Atlas from scratch
+#System.LoadAtlasFromFile: "Session_MH01_MH02_MH03_Stereo60_Pseudo"
+
+# The store file is created from the current session, if a file with the same name exists it is deleted
+#System.SaveAtlasToFile: "Session_MH01_MH02_MH03_Stereo60_Pseudo"
 
 #--------------------------------------------------------------------------------------------
 # Camera Parameters. Adjust them!
 #--------------------------------------------------------------------------------------------
 Camera.type: "PinHole"
 
-# Camera calibration and distortion parameters (OpenCV)
-# These are your original values for Camera1 (LEFT)
-Camera.fx: 543.9
-Camera.fy: 546.7
-Camera.cx: 285.2
-Camera.cy: 225.4
+# Camera calibration and distortion parameters (OpenCV) 
+Camera.fx: 590.8127
+Camera.fy: 590.8127
+Camera.cx: 298.35809
+Camera.cy: 233.21347
 
-Camera.k1: 0.080689
-Camera.k2: -0.0155603
-Camera.p1: -0.001155
-Camera.p2: -0.004102
-Camera.k3: 0.0  # Added k3
+Camera.k1: 0.0
+Camera.k2: 0.0
+Camera.p1: 0.0
+Camera.p2: 0.0
 
-# Camera2 (RIGHT) - Should be similar for identical C920 cameras
-# Camera2.fx: 543.9
-# Camera2.fy: 546.7
-# Camera2.cx: 285.2
-# Camera2.cy: 225.4
+Camera.bFishEye: 0
 
-# Camera2.k1: 0.080689
-# Camera2.k2: -0.0155603
-# Camera2.p1: -0.001155
-# Camera2.p2: -0.004102
-# Camera2.k3: 0.0
-
-# Image dimensions
 Camera.width: 640
 Camera.height: 480
 
 # Camera frames per second 
-Camera.fps: 10.0
+Camera.fps: 30.0
 
 # stereo baseline times fx
-# CORRECTED: Should be baseline_in_meters * fx = 0.1095 * 543.9
-# Camera.bf: 59.55705  # This was wrong! Was 387.5744
-Camera.bf: 69.06965  # This was wrong! Was 387.5744
-
+Camera.bf: 70.897524
 
 # Color order of the images (0: BGR, 1: RGB. It is ignored if images are grayscale)
 Camera.RGB: 1
 
 # Close/Far threshold. Baseline times.
-ThDepth: 40.0
-
-# CRITICAL: Transformation matrix from Camera1 to Camera2
-# This was MISSING in your original file!
-# Stereo.T_c1_c2: !!opencv-matrix
-#    rows: 4
-#    cols: 4
-#    dt: f
-#    data: [1.0, 0.0, 0.0, -0.1095,  # -baseline in meters (negative for right camera)
-#           0.0, 1.0, 0.0, 0.0,
-#           0.0, 0.0, 1.0, 0.0,
-#           0.0, 0.0, 0.0, 1.0]
-
-# Stereo baseline in meters (for reference)
-Stereo.b: 0.1095
+ThDepth: 35.0 #35.0 #60.0
 
 #--------------------------------------------------------------------------------------------
-# Stereo Rectification Parameters (REQUIRED for stereo)
-# These were MISSING in your original file
+# Stereo Rectification. Only if you need to pre-rectify the images.
+# Camera.fx, .fy, etc must be the same as in LEFT.P
 #--------------------------------------------------------------------------------------------
 LEFT.height: 480
 LEFT.width: 640
@@ -75,48 +55,28 @@ LEFT.D: !!opencv-matrix
    rows: 1
    cols: 5
    dt: d
-   data: [0.059852, -0.177031, -0.001192, -0.003334, 0.000000]
-
+   data: [0.032153, -0.111250, -0.000734, -0.008839, 0.000000]
 LEFT.K: !!opencv-matrix
    rows: 3
    cols: 3
    dt: d
-   data: [587.27242,   0.     , 326.13532,
-            0.     , 585.91453, 240.24576,
+   data: [564.45078,   0.     , 306.87055,
+            0.     , 564.54786, 238.09909,
             0.     ,   0.     ,   1.     ]
-
-# LEFT.R: !!opencv-matrix
-#    rows: 3
-#    cols: 3
-#    dt: d
-#    data: [1.0, 0.0, 0.0,
-#           0.0, 1.0, 0.0,
-#           0.0, 0.0, 1.0]
-
-LEFT.R: !!opencv-matrix
+LEFT.R:  !!opencv-matrix
    rows: 3
    cols: 3
    dt: d
-   data: [ 0.99755794, -0.01805229,  0.06747049,
-            0.01698868,  0.99972273,  0.01630472,
-            -0.06774612, -0.01511867,  0.99758804]
-
-# LEFT.P: !!opencv-matrix
-#    rows: 3
-#    cols: 4
-#    dt: d
-#    data: [543.9, 0.0, 285.2, 0.0,
-#           0.0, 546.7, 225.4, 0.0,
-#           0.0, 0.0, 1.0, 0.0]
-
-LEFT.P: !!opencv-matrix
+   data: [ 0.99964652, -0.02099541, -0.01631006,
+            0.02115279,  0.99973076,  0.00953777,
+            0.01610542, -0.0098794 ,  0.99982149]
+LEFT.P:  !!opencv-matrix
    rows: 3
    cols: 4
    dt: d
-   data: [658.21628,   0.     , 252.00515,   0.     ,
-            0.     , 658.21628, 240.20231,   0.     ,
+   data: [590.8127 ,   0.     , 298.35809,   0.     ,
+            0.     , 590.8127 , 233.21347,   0.     ,
             0.     ,   0.     ,   1.     ,   0.     ]
-
 
 RIGHT.height: 480
 RIGHT.width: 640
@@ -124,30 +84,27 @@ RIGHT.D: !!opencv-matrix
    rows: 1
    cols: 5
    dt: d
-   data: [0.156971, -0.426013, 0.002434, 0.008741, 0.000000]
-
+   data: [0.013401, -0.186403, -0.006202, -0.012130, 0.000000]
 RIGHT.K: !!opencv-matrix
    rows: 3
    cols: 3
    dt: d
-   data: [594.95414,   0.     , 332.38311,
-            0.     , 593.77998, 239.87835,
+   data: [559.67979,   0.     , 315.89483,
+            0.     , 563.08106, 234.33675,
             0.     ,   0.     ,   1.     ]
-
-RIGHT.R: !!opencv-matrix
+RIGHT.R:  !!opencv-matrix
    rows: 3
    cols: 3
    dt: d
-   data: [ 0.98973879, -0.00712892,  0.14271059,
-            0.00937741,  0.99984218, -0.0150892 ,
-            -0.1425805 ,  0.01627262,  0.98964943]
-
-RIGHT.P: !!opencv-matrix
+   data: [ 0.99972767, -0.00066761,  0.02332682,
+            0.00089409,  0.99995256, -0.00969968,
+            -0.02331924,  0.00971789,  0.99968084]
+RIGHT.P:  !!opencv-matrix
    rows: 3
    cols: 4
    dt: d
-   data: [658.21628,   0.     , 252.00515,  69.06965,
-            0.     , 658.21628, 240.20231,   0.     ,
+   data: [590.8127 ,   0.     , 298.35809, -64.72149,
+            0.     , 590.8127 , 233.21347,   0.     ,
             0.     ,   0.     ,   1.     ,   0.     ]
 
 #--------------------------------------------------------------------------------------------
@@ -161,7 +118,7 @@ ORBextractor.nFeatures: 2000
 ORBextractor.scaleFactor: 1.2
 
 # ORB Extractor: Number of levels in the scale pyramid	
-ORBextractor.nLevels: 8
+ORBextractor.nLevels: 7
 
 # ORB Extractor: Fast threshold
 # Image is divided in a grid. At each cell FAST are extracted imposing a minimum response.
@@ -173,13 +130,14 @@ ORBextractor.minThFAST: 7
 #--------------------------------------------------------------------------------------------
 # Viewer Parameters
 #--------------------------------------------------------------------------------------------
-Viewer.KeyFrameSize: 0.6
-Viewer.KeyFrameLineWidth: 2
-Viewer.GraphLineWidth: 1
-Viewer.PointSize: 2
-Viewer.CameraSize: 0.7
-Viewer.CameraLineWidth: 3
-Viewer.ViewpointX: 0
-Viewer.ViewpointY: -100
-Viewer.ViewpointZ: -0.1
-Viewer.ViewpointF: 2000
+Viewer.KeyFrameSize: 0.05
+Viewer.KeyFrameLineWidth: 1.0
+Viewer.GraphLineWidth: 0.9
+Viewer.PointSize: 2.0
+Viewer.CameraSize: 0.08
+Viewer.CameraLineWidth: 3.0
+Viewer.ViewpointX: 0.0
+Viewer.ViewpointY: -1.7
+Viewer.ViewpointZ: 0.8
+Viewer.ViewpointF: -500.0
+Viewer.imageViewScale: 1.0
